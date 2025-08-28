@@ -12,7 +12,9 @@
 <body>
 <script>
 // Wind Flow Field (London only)
-// Concept + code written with ChatGPT ✨
+// Wind data: Open-Meteo
+// Clock: WorldTimeAPI
+// Code evolved with ChatGPT ✨
 
 let windSpeed = 0;
 let windDir = 0;
@@ -20,11 +22,11 @@ let hasWindData = false;
 let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
 
-let weatherTime = ""; // from API
+let globalTime = ""; // authoritative London time
 
 let agents = [];
-let numLines = 300; // pool of agents
-let speedScale = 0.3;  // gentle drift
+let numLines = 300;
+let speedScale = 0.3;
 
 // London coordinates
 let lat = 51.5074;
@@ -34,7 +36,7 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
   textFont("Andale Mono, monospace");
-  textSize(6);
+  textSize(11);
   textAlign(LEFT, BOTTOM);
   fill(0);
 
@@ -42,8 +44,9 @@ function setup() {
     agents.push(new LineAgent(random(width), random(height)));
   }
 
-  // Fetch once immediately
+  // Fetch data + clock immediately
   fetchData();
+  fetchTime();
   lastFetch = millis();
 }
 
@@ -51,7 +54,6 @@ function draw() {
   background(240);
 
   if (hasWindData && windSpeed > 0.01) {
-    // Line length scales directly with wind speed (0–30 m/s → 0–300 px)
     let globalLen = map(windSpeed, 0, 30, 0, 300);
     globalLen = constrain(globalLen, 0, 300);
 
@@ -59,11 +61,9 @@ function draw() {
     let vx = cos(baseAngle) * windSpeed * 0.25 * speedScale;
     let vy = sin(baseAngle) * windSpeed * 0.25 * speedScale;
 
-    // Line count scales with wind speed
     let effectiveNum = int(map(windSpeed, 0, 33, 7, 251));
     effectiveNum = constrain(effectiveNum, 7, 251);
 
-    // Decide colour: black normally, red if very windy (≥20 m/s)
     let col = (windSpeed >= 20) ? color(200, 0, 0) : color(0);
 
     for (let i = 0; i < effectiveNum; i++) {
@@ -72,7 +72,6 @@ function draw() {
       a.display(baseAngle, globalLen, col);
     }
   } else {
-    // Fallback: static red dots
     stroke(200, 0, 0);
     strokeWeight(0.5);
     for (let a of agents) {
@@ -80,25 +79,45 @@ function draw() {
     }
   }
 
-  // --- Info strip: LDN HH MM ---
+  // --- Info strip with flashing underscore ---
   drawInfoStrip();
 
-  // Fetch again every minute
+  // Refresh weather + clock every minute
   if (millis() - lastFetch > fetchInterval) {
     fetchData();
+    fetchTime();
     lastFetch = millis();
   }
 }
 
 function drawInfoStrip() {
-  if (weatherTime !== "") {
-    let d = new Date(weatherTime);
+  if (globalTime !== "") {
+    let d = new Date(globalTime);
+
     let hh = nf(d.getHours(), 2);
     let mm = nf(d.getMinutes(), 2);
-    let label = "LDN " + hh + " " + mm;
+
+    let days = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+    let months = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+
+    let dayName = days[d.getDay()];
+    let dd = nf(d.getDate(), 2);
+    let MM = months[d.getMonth()];
+    let yyyy = d.getFullYear();
+
+    let label = `LDN  ${dayName}  ${dd}-${MM}-${yyyy} ${hh}${mm}`;
     noStroke();
     fill(0);
     text(label, 5, height - 3);
+
+    // Flashing underscore after minutes
+    if (frameCount % 60 < 30) {
+      let prefix = `LDN  ${dayName}  ${dd}-${MM}-${yyyy} ${hh}`;
+      let w = textWidth(prefix);
+      let x = 5 + w;
+      let y = height - 3;
+      text("_", x, y);
+    }
   }
 }
 
@@ -112,24 +131,20 @@ class LineAgent {
     this.angleOffset = radians(random(-2, 2));
     this.lengthFactor = random(0.7, 1.3);
 
-    // Growth behaviour
-    this.growth = 0; // 0 = seed, 1 = fully grown
-    this.growthRate = random(0.002, 0.01); // random speed of growth
+    this.growth = 0;
+    this.growthRate = random(0.002, 0.01);
   }
 
   update(vx, vy, baseAngle, len) {
-    // Let lines grow
     this.growth = min(1, this.growth + this.growthRate);
 
-    // Movement with jitter
     let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
     let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
     this.x += vx + jitterX;
     this.y += vy + jitterY;
 
-    // Wrap-around with random respawn edges
     if (this.x < -len || this.x > width + len || this.y < -len || this.y > height + len) {
-      let edge = int(random(4)); // 0=left, 1=right, 2=top, 3=bottom
+      let edge = int(random(4));
       if (edge === 0) { this.x = -len; this.y = random(height); }
       else if (edge === 1) { this.x = width + len; this.y = random(height); }
       else if (edge === 2) { this.x = random(width); this.y = -len; }
@@ -138,7 +153,6 @@ class LineAgent {
   }
 
   display(baseAngle, globalLen, col) {
-    // Interpolate from tiny seed (2 px) to target length
     let targetLen = globalLen * this.lengthFactor;
     let thisLen = lerp(2, targetLen, this.growth);
 
@@ -152,6 +166,8 @@ class LineAgent {
   }
 }
 
+// --- Fetch functions ---
+
 async function fetchData() {
   try {
     let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
@@ -160,13 +176,23 @@ async function fetchData() {
     if (data && data.current_weather) {
       windSpeed = data.current_weather.windspeed;
       windDir = data.current_weather.winddirection;
-      weatherTime = data.current_weather.time; // store timestamp
       hasWindData = true;
-      console.log("Wind updated:", windSpeed, "m/s", windDir + "°", "at", weatherTime);
+      console.log("Wind updated:", windSpeed, "m/s", windDir + "°");
     }
   } catch (e) {
     console.warn("Weather fetch failed:", e);
     hasWindData = false;
+  }
+}
+
+async function fetchTime() {
+  try {
+    let res = await fetch("https://worldtimeapi.org/api/timezone/Europe/London");
+    let data = await res.json();
+    globalTime = data.datetime; // authoritative ISO timestamp
+    console.log("Time updated:", globalTime);
+  } catch (e) {
+    console.warn("Time fetch failed:", e);
   }
 }
 
