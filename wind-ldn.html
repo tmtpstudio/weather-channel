@@ -19,10 +19,11 @@ let windDir = 0;
 let hasWindData = false;
 let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
+let lastUrl = "";
 
 let agents = [];
 let numLines = 300; // pool of agents
-let speedScale = 0.4;  // gentle drift
+let speedScale = 0.1;  // gentle drift
 
 // London coordinates
 let lat = 51.5074; 
@@ -31,6 +32,10 @@ let lon = -0.1278;
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1); // keep consistent across browsers
+  textFont("monospace");
+  textSize(5);
+  fill(50, 0, 0);
+
   for (let i=0; i<numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
   }
@@ -52,7 +57,7 @@ function draw() {
     let vy = sin(baseAngle) * windSpeed * 0.25 * speedScale;
 
     // Line count scales with wind speed
-    let effectiveNum = int(map(windSpeed, 0, 20, 7, 251));
+    let effectiveNum = int(map(windSpeed, 0, 33, 7, 251));
     effectiveNum = constrain(effectiveNum, 7, 251);
 
     // Decide colour: black normally, red if very windy (≥20 m/s)
@@ -71,6 +76,18 @@ function draw() {
       point(a.x, a.y);
     }
   }
+
+  // --- Debug strip on left edge ---
+  push();
+  translate(10, height/2);
+  rotate(-HALF_PI);
+  textSize(5);
+  textAlign(CENTER, CENTER);
+  fill(50, 0, 0);
+  noStroke();
+  let debugText = `${nf(windSpeed,1,1)} m/s | ${windDir}°\n${lastUrl}`;
+  text(debugText, 0, 0);
+  pop();
 
   if (millis() - lastFetch > fetchInterval) {
     fetchData();
@@ -112,8 +129,8 @@ class LineAgent {
 
 async function fetchData() {
   try {
-    let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
-    let res = await fetch(url);
+    lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+    let res = await fetch(lastUrl);
     let data = await res.json();
     if (data && data.current_weather) {
       windSpeed = data.current_weather.windspeed;
