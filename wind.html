@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Wind Flow Field</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <style>
+    body { margin:0; padding:0; overflow:hidden; background:#f0f0f0; }
+    canvas { display:block; position:fixed; top:0; left:0; z-index:0; }
+  </style>
+</head>
+<body>
+<script>
+// Wind Flow Field (London only)
+// Concept + code written with ChatGPT ✨
+
+let windSpeed = 0;
+let windDir = 0;
+let hasWindData = false;
+let lastFetch = 0;
+let fetchInterval = 60000; // 1 minute
+
+let agents = [];
+let numLines = 120;
+let speedScale = 0.6;  
+
+// London coordinates
+let lat = 51.5074; 
+let lon = -0.1278;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  for (let i=0; i<numLines; i++) {
+    agents.push(new LineAgent(random(width), random(height)));
+  }
+  // Fetch once immediately
+  fetchData();
+  lastFetch = millis();
+}
+
+function draw() {
+  background(240);
+
+  if (hasWindData && windSpeed > 0.01) {
+    let globalLen = map(windSpeed, 0, 20, 10, 100);
+    globalLen = constrain(globalLen, 10, 100);
+
+    let baseAngle = radians(windDir + 90);
+    let vx = cos(baseAngle) * windSpeed * 0.3 * speedScale;
+    let vy = sin(baseAngle) * windSpeed * 0.3 * speedScale;
+
+    for (let a of agents) {
+      a.update(vx, vy, baseAngle, globalLen);
+      a.display(baseAngle, globalLen);
+    }
+  } else {
+    // Fallback: red 1px dots
+    stroke(200, 0, 0);
+    strokeWeight(1);
+    for (let a of agents) {
+      point(a.x, a.y);
+    }
+  }
+
+  if (millis() - lastFetch > fetchInterval) {
+    fetchData();
+    lastFetch = millis();
+  }
+}
+
+class LineAgent {
+  constructor(x,y) {
+    this.x = x;
+    this.y = y;
+    this.phase = random(TWO_PI);
+    this.freq = random(0.01, 0.05);
+    this.amp = random(0.02, 0.05);
+    this.angleOffset = radians(random(-2,2));
+    this.lengthFactor = random(0.7, 1.3);
+  }
+  update(vx, vy, baseAngle, len) {
+    let jitterX = cos(frameCount*this.freq + this.phase) * this.amp * vx;
+    let jitterY = sin(frameCount*this.freq + this.phase) * this.amp * vy;
+    this.x += vx + jitterX;
+    this.y += vy + jitterY;
+    if (this.x < -len) { this.x = width + len; this.y = random(-len, height+len); }
+    if (this.x > width+len) { this.x = -len; this.y = random(-len, height+len); }
+    if (this.y < -len) { this.y = height + len; this.x = random(-len, width+len); }
+    if (this.y > height+len) { this.y = -len; this.x = random(-len, width+len); }
+  }
+  display(baseAngle, globalLen) {
+    let thisLen = globalLen * this.lengthFactor;
+    push();
+    translate(this.x, this.y);
+    rotate(baseAngle + this.angleOffset);
+    stroke(0);
+    strokeWeight(0.5);
+    line(-thisLen/2, 0, thisLen/2, 0);
+    pop();
+  }
+}
+
+async function fetchData() {
+  try {
+    let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+    let res = await fetch(url);
+    let data = await res.json();
+    if (data && data.current_weather) {
+      windSpeed = data.current_weather.windspeed;
+      windDir = data.current_weather.winddirection;
+      hasWindData = true;
+      console.log("Wind updated:", windSpeed, "m/s", windDir+"°");
+    }
+  } catch (e) {
+    console.warn("Weather fetch failed:", e);
+    hasWindData = false;
+  }
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
