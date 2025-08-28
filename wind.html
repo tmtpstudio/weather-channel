@@ -21,7 +21,7 @@ let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
 
 let agents = [];
-let numLines = 120;
+let numLines = 120; // maximum pool of agents
 let speedScale = 0.6;  
 
 // London coordinates
@@ -42,6 +42,7 @@ function draw() {
   background(240);
 
   if (hasWindData && windSpeed > 0.01) {
+    // line length scales with wind speed
     let globalLen = map(windSpeed, 0, 20, 10, 100);
     globalLen = constrain(globalLen, 10, 100);
 
@@ -49,12 +50,17 @@ function draw() {
     let vx = cos(baseAngle) * windSpeed * 0.3 * speedScale;
     let vy = sin(baseAngle) * windSpeed * 0.3 * speedScale;
 
-    for (let a of agents) {
+    // NEW: number of lines also scales (max 40% of numLines)
+    let effectiveNum = int(map(windSpeed, 0, 20, 0, numLines * 0.4));
+    effectiveNum = constrain(effectiveNum, 0, int(numLines * 0.4));
+
+    for (let i = 0; i < effectiveNum; i++) {
+      let a = agents[i];
       a.update(vx, vy, baseAngle, globalLen);
       a.display(baseAngle, globalLen);
     }
   } else {
-    // Fallback: red 1px dots
+    // fallback: static red dots
     stroke(200, 0, 0);
     strokeWeight(1);
     for (let a of agents) {
@@ -123,3 +129,4 @@ function windowResized() {
 </script>
 </body>
 </html>
+
