@@ -34,7 +34,7 @@ function setup() {
   pixelDensity(0.5); // keep consistent across browsers
  // textFont("monospace");
  // textSize(5);
- //  fill(50, 0, 0);
+ fill(50, 0, 0);
 
   for (let i=0; i<numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
@@ -131,7 +131,7 @@ class LineAgent {
 
 async function fetchData() {
   try {
-  // lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+   lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
     let res = await fetch(lastUrl);
     let data = await res.json();
     if (data && data.current_weather) {
