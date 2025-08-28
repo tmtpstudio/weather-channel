@@ -20,20 +20,23 @@ let hasWindData = false;
 let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
 
+let weatherTime = ""; // from API
+
 let agents = [];
-let numLines = 300; // pool of lines
+let numLines = 300; // pool of agents
 let speedScale = 0.3;  // gentle drift
 
 // London coordinates
-let lat = 51.5153;
-let lon = -0.1420;
-
- 
-
+let lat = 51.5074;
+let lon = -0.1278;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
+  textFont("Andale Mono, monospace");
+  textSize(6);
+  textAlign(LEFT, BOTTOM);
+  fill(0);
 
   for (let i = 0; i < numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
@@ -77,10 +80,25 @@ function draw() {
     }
   }
 
+  // --- Info strip: LDN HH MM ---
+  drawInfoStrip();
+
   // Fetch again every minute
   if (millis() - lastFetch > fetchInterval) {
     fetchData();
     lastFetch = millis();
+  }
+}
+
+function drawInfoStrip() {
+  if (weatherTime !== "") {
+    let d = new Date(weatherTime);
+    let hh = nf(d.getHours(), 2);
+    let mm = nf(d.getMinutes(), 2);
+    let label = "LDN " + hh + " " + mm;
+    noStroke();
+    fill(0);
+    text(label, 5, height - 3);
   }
 }
 
@@ -94,48 +112,43 @@ class LineAgent {
     this.angleOffset = radians(random(-2, 2));
     this.lengthFactor = random(0.7, 1.3);
 
-    // NEW: staggered entry
-    this.startDelay = int(random(0, 300)); // frames to wait before activating
+    // Growth behaviour
+    this.growth = 0; // 0 = seed, 1 = fully grown
+    this.growthRate = random(0.002, 0.01); // random speed of growth
   }
 
   update(vx, vy, baseAngle, len) {
-    if (frameCount > this.startDelay) {
-      let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
-      let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
-      this.x += vx + jitterX;
-      this.y += vy + jitterY;
+    // Let lines grow
+    this.growth = min(1, this.growth + this.growthRate);
 
-      // NEW: random respawn edges
-      if (this.x < -len || this.x > width + len || this.y < -len || this.y > height + len) {
-        let edge = int(random(4)); // 0=left, 1=right, 2=top, 3=bottom
-        if (edge === 0) { // left
-          this.x = -len;
-          this.y = random(height);
-        } else if (edge === 1) { // right
-          this.x = width + len;
-          this.y = random(height);
-        } else if (edge === 2) { // top
-          this.x = random(width);
-          this.y = -len;
-        } else if (edge === 3) { // bottom
-          this.x = random(width);
-          this.y = height + len;
-        }
-      }
+    // Movement with jitter
+    let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
+    let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
+    this.x += vx + jitterX;
+    this.y += vy + jitterY;
+
+    // Wrap-around with random respawn edges
+    if (this.x < -len || this.x > width + len || this.y < -len || this.y > height + len) {
+      let edge = int(random(4)); // 0=left, 1=right, 2=top, 3=bottom
+      if (edge === 0) { this.x = -len; this.y = random(height); }
+      else if (edge === 1) { this.x = width + len; this.y = random(height); }
+      else if (edge === 2) { this.x = random(width); this.y = -len; }
+      else if (edge === 3) { this.x = random(width); this.y = height + len; }
     }
   }
 
   display(baseAngle, globalLen, col) {
-    if (frameCount > this.startDelay) {
-      let thisLen = globalLen * this.lengthFactor;
-      push();
-      translate(this.x, this.y);
-      rotate(baseAngle + this.angleOffset);
-      stroke(col);
-      strokeWeight(0.5);
-      line(-thisLen / 2, 0, thisLen / 2, 0);
-      pop();
-    }
+    // Interpolate from tiny seed (2 px) to target length
+    let targetLen = globalLen * this.lengthFactor;
+    let thisLen = lerp(2, targetLen, this.growth);
+
+    push();
+    translate(this.x, this.y);
+    rotate(baseAngle + this.angleOffset);
+    stroke(col);
+    strokeWeight(0.5);
+    line(-thisLen / 2, 0, thisLen / 2, 0);
+    pop();
   }
 }
 
@@ -147,8 +160,9 @@ async function fetchData() {
     if (data && data.current_weather) {
       windSpeed = data.current_weather.windspeed;
       windDir = data.current_weather.winddirection;
+      weatherTime = data.current_weather.time; // store timestamp
       hasWindData = true;
-      console.log("Wind updated:", windSpeed, "m/s", windDir + "°");
+      console.log("Wind updated:", windSpeed, "m/s", windDir + "°", "at", weatherTime);
     }
   } catch (e) {
     console.warn("Weather fetch failed:", e);
