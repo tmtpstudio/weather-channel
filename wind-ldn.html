@@ -105,14 +105,14 @@ function drawInfoStrip() {
     let MM = months[d.getMonth()];
     let yyyy = d.getFullYear();
 
-    let label = `LDN  ${dayName}  ${dd}-${MM}-${yyyy} ${hh}${mm}`;
+    let label = `LDN ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
     noStroke();
     fill(0);
     text(label, 5, height - 3);
 
     // Flashing underscore after minutes
     if (frameCount % 60 < 30) {
-      let prefix = `LDN  ${dayName}  ${dd}-${MM}-${yyyy} ${hh}`;
+      let prefix = `LDN ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
       let w = textWidth(prefix);
       let x = 5 + w;
       let y = height - 3;
