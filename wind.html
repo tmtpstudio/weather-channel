@@ -21,8 +21,8 @@ let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
 
 let agents = [];
-let numLines = 251; // pool of agents
-let speedScale = 0.1;  // reduced speed for gentler drift
+let numLines = 300; // pool of agents
+let speedScale = 0.4;  // gentle drift
 
 // London coordinates
 let lat = 51.5074; 
@@ -30,6 +30,7 @@ let lon = -0.1278;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
+  pixelDensity(1); // keep consistent across browsers
   for (let i=0; i<numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
   }
@@ -42,22 +43,25 @@ function draw() {
   background(240);
 
   if (hasWindData && windSpeed > 0.01) {
-    // Line length scales with wind speed
-    let globalLen = map(windSpeed, 0, 20, 10, 100);
-    globalLen = constrain(globalLen, 10, 100);
+    // Line length scales directly with wind speed (0–30 m/s → 0–300 px)
+    let globalLen = map(windSpeed, 0, 30, 0, 300);
+    globalLen = constrain(globalLen, 0, 300);
 
     let baseAngle = radians(windDir + 90);
-    let vx = cos(baseAngle) * windSpeed * 0.25 * speedScale; // gentler vector
+    let vx = cos(baseAngle) * windSpeed * 0.25 * speedScale;
     let vy = sin(baseAngle) * windSpeed * 0.25 * speedScale;
 
     // Line count scales with wind speed
     let effectiveNum = int(map(windSpeed, 0, 20, 7, 251));
     effectiveNum = constrain(effectiveNum, 7, 251);
 
+    // Decide colour: black normally, red if very windy (≥20 m/s)
+    let col = (windSpeed >= 20) ? color(200, 0, 0) : color(0);
+
     for (let i = 0; i < effectiveNum; i++) {
       let a = agents[i];
       a.update(vx, vy, baseAngle, globalLen);
-      a.display(baseAngle, globalLen);
+      a.display(baseAngle, globalLen, col);
     }
   } else {
     // Fallback: static red dots
@@ -94,12 +98,12 @@ class LineAgent {
     if (this.y < -len) { this.y = height + len; this.x = random(-len, width+len); }
     if (this.y > height+len) { this.y = -len; this.x = random(-len, width+len); }
   }
-  display(baseAngle, globalLen) {
+  display(baseAngle, globalLen, col) {
     let thisLen = globalLen * this.lengthFactor;
     push();
     translate(this.x, this.y);
     rotate(baseAngle + this.angleOffset);
-    stroke(0);
+    stroke(col);
     strokeWeight(0.5);
     line(-thisLen/2, 0, thisLen/2, 0);
     pop();
