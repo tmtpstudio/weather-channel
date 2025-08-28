@@ -19,31 +19,26 @@ let windDir = 0;
 let hasWindData = false;
 let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
-// let lastUrl = "";
 
 let agents = [];
 let numLines = 300; // pool of agents
 let speedScale = 0.3;  // gentle drift
 
-// London coordinates
-let lat = 51.5074; 
+// London coordinates (Charing Cross)
+let lat = 51.5074;
 let lon = -0.1278;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1); // keep consistent across browsers
- // textFont("monospace");
- // textSize(5);
-// fill(50, 0, 0);
 
-  for (let i=0; i<numLines; i++) {
+  for (let i = 0; i < numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
   }
+
   // Fetch once immediately
   fetchData();
   lastFetch = millis();
- 
-
 }
 
 function draw() {
@@ -77,49 +72,34 @@ function draw() {
     for (let a of agents) {
       point(a.x, a.y);
     }
-    }
-  
-  
-/*
-  // --- Debug strip on left edge ---
-  push();
-  translate(10, height/2);
-  rotate(-HALF_PI);
-  textSize(5);
-  textAlign(CENTER, CENTER);
-  fill(50, 0, 0);
-  noStroke();
-  let debugText = `${nf(windSpeed,1,1)} m/s | ${windDir}°\n${lastUrl}`;
-  text(debugText, 0, 0);
-  pop();
-*/
+  }
 
+  // Fetch again every minute
   if (millis() - lastFetch > fetchInterval) {
     fetchData();
     lastFetch = millis();
   }
 }
 
-  
 class LineAgent {
-  constructor(x,y) {
+  constructor(x, y) {
     this.x = x;
     this.y = y;
     this.phase = random(TWO_PI);
     this.freq = random(0.01, 0.05);
     this.amp = random(0.02, 0.05);
-    this.angleOffset = radians(random(-2,2));
+    this.angleOffset = radians(random(-2, 2));
     this.lengthFactor = random(0.7, 1.3);
   }
   update(vx, vy, baseAngle, len) {
-    let jitterX = cos(frameCount*this.freq + this.phase) * this.amp * vx;
-    let jitterY = sin(frameCount*this.freq + this.phase) * this.amp * vy;
+    let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
+    let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
     this.x += vx + jitterX;
     this.y += vy + jitterY;
-    if (this.x < -len) { this.x = width + len; this.y = random(-len, height+len); }
-    if (this.x > width+len) { this.x = -len; this.y = random(-len, height+len); }
-    if (this.y < -len) { this.y = height + len; this.x = random(-len, width+len); }
-    if (this.y > height+len) { this.y = -len; this.x = random(-len, width+len); }
+    if (this.x < -len) { this.x = width + len; this.y = random(-len, height + len); }
+    if (this.x > width + len) { this.x = -len; this.y = random(-len, height + len); }
+    if (this.y < -len) { this.y = height + len; this.x = random(-len, width + len); }
+    if (this.y > height + len) { this.y = -len; this.x = random(-len, width + len); }
   }
   display(baseAngle, globalLen, col) {
     let thisLen = globalLen * this.lengthFactor;
@@ -128,21 +108,21 @@ class LineAgent {
     rotate(baseAngle + this.angleOffset);
     stroke(col);
     strokeWeight(0.5);
-    line(-thisLen/2, 0, thisLen/2, 0);
+    line(-thisLen / 2, 0, thisLen / 2, 0);
     pop();
   }
 }
 
 async function fetchData() {
   try {
-  lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
-    let res = await fetch(lastUrl);
+    let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+    let res = await fetch(url);
     let data = await res.json();
     if (data && data.current_weather) {
       windSpeed = data.current_weather.windspeed;
       windDir = data.current_weather.winddirection;
       hasWindData = true;
-      console.log("Wind updated:", windSpeed, "m/s", windDir+"°");
+      console.log("Wind updated:", windSpeed, "m/s", windDir + "°");
     }
   } catch (e) {
     console.warn("Weather fetch failed:", e);
