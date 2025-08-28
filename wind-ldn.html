@@ -42,6 +42,9 @@ function setup() {
   // Fetch once immediately
   fetchData();
   lastFetch = millis();
+  let url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+let res = await fetch(url);
+
 }
 
 function draw() {
@@ -131,7 +134,7 @@ class LineAgent {
 
 async function fetchData() {
   try {
- //  lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+  lastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
     let res = await fetch(lastUrl);
     let data = await res.json();
     if (data && data.current_weather) {
