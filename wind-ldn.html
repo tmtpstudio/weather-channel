@@ -21,16 +21,19 @@ let lastFetch = 0;
 let fetchInterval = 60000; // 1 minute
 
 let agents = [];
-let numLines = 300; // pool of agents
+let numLines = 300; // pool of lines
 let speedScale = 0.3;  // gentle drift
 
-// London coordinates (Charing Cross)
-let lat = 51.5074;
-let lon = -0.1278;
+// London coordinates
+let lat = 51.5153;
+let lon = -0.1420;
+
+ 
+
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  pixelDensity(1); // keep consistent across browsers
+  pixelDensity(1);
 
   for (let i = 0; i < numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
@@ -90,72 +93,49 @@ class LineAgent {
     this.amp = random(0.02, 0.05);
     this.angleOffset = radians(random(-2, 2));
     this.lengthFactor = random(0.7, 1.3);
-    this.startDelay = int(random(0, 300)); // frames to wait before appearing
 
+    // NEW: staggered entry
+    this.startDelay = int(random(0, 300)); // frames to wait before activating
   }
+
   update(vx, vy, baseAngle, len) {
-    let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
-    let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
-    this.x += vx + jitterX;
-    this.y += vy + jitterY;
-    if (this.x < -len) { this.x = width + len; this.y = random(-len, height + len); }
-    if (this.x > width + len) { this.x = -len; this.y = random(-len, height + len); }
-    if (this.y < -len) { this.y = height + len; this.x = random(-len, width + len); }
-    if (this.y > height + len) { this.y = -len; this.x = random(-len, width + len); }
-   
     if (frameCount > this.startDelay) {
-  let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
-  let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
-  this.x += vx + jitterX;
-  this.y += vy + jitterY;
+      let jitterX = cos(frameCount * this.freq + this.phase) * this.amp * vx;
+      let jitterY = sin(frameCount * this.freq + this.phase) * this.amp * vy;
+      this.x += vx + jitterX;
+      this.y += vy + jitterY;
 
-  // wrap-around stays the same
-  //if (this.x < -len) { this.x = width + len; this.y = random(-len, height+len); }
-  //if (this.x > width+len) { this.x = -len; this.y = random(-len, height+len); }
-  //if (this.y < -len) { this.y = height + len; this.x = random(-len, width+len); }
-  //if (this.y > height+len) { this.y = -len; this.x = random(-len, width+len); }
-
-      if (this.x < -len || this.x > width+len || this.y < -len || this.y > height+len) {
-  let edge = int(random(4)); // 0=left, 1=right, 2=top, 3=bottom
-  if (edge === 0) { // left
-    this.x = -len;
-    this.y = random(height);
-  } else if (edge === 1) { // right
-    this.x = width + len;
-    this.y = random(height);
-  } else if (edge === 2) { // top
-    this.x = random(width);
-    this.y = -len;
-  } else if (edge === 3) { // bottom
-    this.x = random(width);
-    this.y = height + len;
+      // NEW: random respawn edges
+      if (this.x < -len || this.x > width + len || this.y < -len || this.y > height + len) {
+        let edge = int(random(4)); // 0=left, 1=right, 2=top, 3=bottom
+        if (edge === 0) { // left
+          this.x = -len;
+          this.y = random(height);
+        } else if (edge === 1) { // right
+          this.x = width + len;
+          this.y = random(height);
+        } else if (edge === 2) { // top
+          this.x = random(width);
+          this.y = -len;
+        } else if (edge === 3) { // bottom
+          this.x = random(width);
+          this.y = height + len;
+        }
+      }
+    }
   }
-}
 
-
-
-  }
   display(baseAngle, globalLen, col) {
-    let thisLen = globalLen * this.lengthFactor;
-    push();
-    translate(this.x, this.y);
-    rotate(baseAngle + this.angleOffset);
-    stroke(col);
-    strokeWeight(0.5);
-    line(-thisLen / 2, 0, thisLen / 2, 0);
-    pop();
- 
     if (frameCount > this.startDelay) {
-  let thisLen = globalLen * this.lengthFactor;
-  push();
-  translate(this.x, this.y);
-  rotate(baseAngle + this.angleOffset);
-  stroke(col);
-  strokeWeight(0.5);
-  line(-thisLen/2, 0, thisLen/2, 0);
-  pop();
-}
-
+      let thisLen = globalLen * this.lengthFactor;
+      push();
+      translate(this.x, this.y);
+      rotate(baseAngle + this.angleOffset);
+      stroke(col);
+      strokeWeight(0.5);
+      line(-thisLen / 2, 0, thisLen / 2, 0);
+      pop();
+    }
   }
 }
 
