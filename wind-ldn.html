@@ -88,13 +88,13 @@ function draw() {
   let debugText = `${nf(windSpeed,1,1)} m/s | ${windDir}°\n${lastUrl}`;
   text(debugText, 0, 0);
   pop();
+*/
 
   if (millis() - lastFetch > fetchInterval) {
     fetchData();
     lastFetch = millis();
   }
 }
-*/
 
   
 class LineAgent {
