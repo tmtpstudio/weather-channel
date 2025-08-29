@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LDN Temperature Gradient</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+<style>
+  body { margin:0; padding:0; overflow:hidden; background:#f0f0f0; }
+  canvas { display:block; position:fixed; top:0; left:0; z-index:0; }
+</style>
+
+<!--
+  Credits:
+  Art Direction by TMTP
+  Developed & written with ChatGPT
+  Edited with Lumo
+-->
+</head>
+<body>
+<script>
+const LAT=51.5074,LON=-0.1278,TZ="Europe/London";
+const MIN_T=-3,MAX_T=37;
+const COLD="#49419f", HOT="#ffdff1";
+
+let curTemp=null,dayLow=null,dayHigh=null,nightLow=null,nightHigh=null;
+let liveData=false,globalTime="";
+
+let gradientImage=null; // cached gradient
+
+function setup(){
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  textFont("Andale Mono, monospace");
+  textSize(11);
+  textAlign(LEFT, BOTTOM);
+  fill(0);
+  loadData();
+  setInterval(loadData,10*60*1000); // refresh every 10min
+}
+
+function draw(){
+  if(!liveData){
+    // fallback
+    background(238);
+    stroke(0);
+    strokeWeight(0.5);
+    line(0,height,width,0);
+    drawInfoStrip();
+    return;
+  }
+
+  if(gradientImage){
+    image(gradientImage,0,0,width,height);
+  }
+
+  drawInfoStrip();
+}
+
+function drawInfoStrip(){
+  if(!globalTime) return;
+  const d=new Date(globalTime);
+  const hh=("0"+d.getHours()).slice(-2);
+  const mm=("0"+d.getMinutes()).slice(-2);
+  const days=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const months=['01','02','03','04','05','06','07','08','09','10','11','12'];
+  const dayName=days[d.getDay()];
+  const dd=("0"+d.getDate()).slice(-2);
+  const MM=months[d.getMonth()];
+  const yyyy=d.getFullYear();
+
+  // clear strip behind text
+  noStroke();
+  fill(255,255,255,0);
+  rectMode(CORNER);
+  rect(0,height-20,400,20);
+
+  // draw label
+  fill(0);
+  const label=`LDN TEMP ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}${liveData?"":" NO LIVE DATA"}`;
+  text(label,5,height-3);
+
+  // blinking underscore — time-based (~2Hz)
+  if ((millis() % 1000) < 250) {
+    const prefix=`LDN TEMP ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
+    const w=textWidth(prefix);
+    text("_",5+w,height-3);
+  }
+}
+
+function mapTempToColour(temp){
+  const tNorm=(temp-MIN_T)/(MAX_T-MIN_T);
+  return lerpColor(color(COLD),color(HOT),constrain(tNorm,0,1));
+}
+
+// recompute gradient whenever new data is loaded
+function buildGradient(){
+  gradientImage = createImage(width,height);
+  gradientImage.loadPixels();
+
+  const tl = dayHigh   != null ? mapTempToColour(dayHigh)    : color(180);
+  const bl = dayLow    != null ? mapTempToColour(dayLow)     : color(180);
+  const tr = nightHigh != null ? mapTempToColour(nightHigh)  : color(180);
+  const br = nightLow  != null ? mapTempToColour(nightLow)   : color(180);
+
+  const cx = width/2;
+  const cy = height/2;
+  const centre = curTemp!=null ? mapTempToColour(curTemp) : color(120);
+
+  const maxDist = sqrt(0.5*0.5+0.5*0.5);
+
+  for(let y=0;y<height;y++){
+    const ny = y/(height-1);
+    for(let x=0;x<width;x++){
+      const nx = x/(width-1);
+      const top=lerpColor(tl,tr,nx);
+      const bot=lerpColor(bl,br,nx);
+      const base=lerpColor(top,bot,ny);
+
+      const dx=(x-cx)/width;
+      const dy=(y-cy)/height;
+      const normDist=sqrt(dx*dx+dy*dy)/maxDist;
+      const weight=1-normDist*normDist;
+      const finalCol=lerpColor(base,centre,constrain(weight,0,1));
+
+      const idx=(y*width+x)*4;
+      gradientImage.pixels[idx]   = red(finalCol);
+      gradientImage.pixels[idx+1] = green(finalCol);
+      gradientImage.pixels[idx+2] = blue(finalCol);
+      gradientImage.pixels[idx+3] = 255;
+    }
+  }
+  gradientImage.updatePixels();
+}
+
+async function loadData(){
+  try{
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m&daily=sunrise,sunset&timezone=${TZ}&current_weather=true`;
+    const res=await fetch(url);
+    const data=await res.json();
+
+    globalTime=data.current_weather.time;
+    curTemp=data.current_weather.temperature;
+
+    const sunrise=new Date(data.daily.sunrise[0]);
+    const sunset=new Date(data.daily.sunset[0]);
+    const tonightEnd=new Date(data.daily.sunrise[1]);
+    const dayTemps=[],nightTemps=[];
+    data.hourly.time.forEach((t,i)=>{
+      const T=new Date(t);
+      const val=data.hourly.temperature_2m[i];
+      if(T>=sunrise && T<=sunset){
+        dayTemps.push(val);
+      }else if(T>=sunset && T<=tonightEnd){
+        nightTemps.push(val);
+      }
+    });
+    if(dayTemps.length){dayLow=Math.min(...dayTemps);dayHigh=Math.max(...dayTemps);}
+    if(nightTemps.length){nightLow=Math.min(...nightTemps);nightHigh=Math.max(...nightTemps);}
+    liveData=true;
+    buildGradient(); // rebuild after data update
+    console.log("Day low/high:",dayLow,dayHigh,"Night low/high:",nightLow,nightHigh,"Current:",curTemp);
+  }catch(e){
+    console.warn("Data fetch failed",e);
+    liveData=false;
+  }
+}
+
+function windowResized(){
+  resizeCanvas(windowWidth,windowHeight);
+  buildGradient(); // rebuild on resize
+}
+</script>
+</body>
+</html>
