@@ -18,14 +18,18 @@
 </head>
 <body>
 <script>
-const LAT=51.5074,LON=-0.1278,TZ="Europe/London";
+const LAT=51.5074,LON=-0.1278;
 const MIN_T=-3,MAX_T=37;
-const COLD="#49419f", HOT="#ffdff1";
+const COLD="#d3fbfb", HOT="#fbdd97";
 
 let curTemp=null,dayLow=null,dayHigh=null,nightLow=null,nightHigh=null;
-let liveData=false,globalTime="";
+let liveData=false;
+let globalTime="";
 
-let gradientImage=null; // cached gradient
+let gradientImage=null;      // current gradient
+let oldGradientImage=null;   // previous gradient (for fading)
+let fadeStart=0;             // millis when fade began
+let fading=false;
 
 function setup(){
   createCanvas(windowWidth, windowHeight);
@@ -33,9 +37,11 @@ function setup(){
   textFont("Andale Mono, monospace");
   textSize(11);
   textAlign(LEFT, BOTTOM);
-  fill(0);
+  fill(255);
   loadData();
   setInterval(loadData,10*60*1000); // refresh every 10min
+  loadTime();
+  setInterval(loadTime,60*1000);    // refresh clock every minute
 }
 
 function draw(){
@@ -49,7 +55,15 @@ function draw(){
     return;
   }
 
-  if(gradientImage){
+  if(fading && oldGradientImage && gradientImage){
+    let amt = constrain((millis()-fadeStart)/2000,0,1); // 2s fade
+    tint(255,255);
+    image(oldGradientImage,0,0,width,height);
+    tint(255,amt*255);
+    image(gradientImage,0,0,width,height);
+    if(amt>=1) fading=false;
+    noTint();
+  } else if(gradientImage){
     image(gradientImage,0,0,width,height);
   }
 
@@ -68,19 +82,19 @@ function drawInfoStrip(){
   const MM=months[d.getMonth()];
   const yyyy=d.getFullYear();
 
-  // clear strip behind text
+  // transparent rect (optional but clears if needed)
   noStroke();
-  fill(255,255,255,0);
+  fill(240,0); // 0% opacity
   rectMode(CORNER);
   rect(0,height-20,400,20);
 
-  // draw label
+  // label
   fill(0);
   const label=`LDN TEMP ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}${liveData?"":" NO LIVE DATA"}`;
   text(label,5,height-3);
 
-  // blinking underscore — time-based (~2Hz)
-  if ((millis() % 1000) < 250) {
+  // blinking underscore (1Hz, 1000ms cycle)
+  if ((millis() % 1000) < 500) {
     const prefix=`LDN TEMP ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
     const w=textWidth(prefix);
     text("_",5+w,height-3);
@@ -92,20 +106,18 @@ function mapTempToColour(temp){
   return lerpColor(color(COLD),color(HOT),constrain(tNorm,0,1));
 }
 
-// recompute gradient whenever new data is loaded
+// build new gradient, trigger fade
 function buildGradient(){
-  gradientImage = createImage(width,height);
-  gradientImage.loadPixels();
+  let newImg=createImage(width,height);
+  newImg.loadPixels();
 
   const tl = dayHigh   != null ? mapTempToColour(dayHigh)    : color(180);
   const bl = dayLow    != null ? mapTempToColour(dayLow)     : color(180);
   const tr = nightHigh != null ? mapTempToColour(nightHigh)  : color(180);
   const br = nightLow  != null ? mapTempToColour(nightLow)   : color(180);
 
-  const cx = width/2;
-  const cy = height/2;
+  const cx = width/2, cy = height/2;
   const centre = curTemp!=null ? mapTempToColour(curTemp) : color(120);
-
   const maxDist = sqrt(0.5*0.5+0.5*0.5);
 
   for(let y=0;y<height;y++){
@@ -123,24 +135,31 @@ function buildGradient(){
       const finalCol=lerpColor(base,centre,constrain(weight,0,1));
 
       const idx=(y*width+x)*4;
-      gradientImage.pixels[idx]   = red(finalCol);
-      gradientImage.pixels[idx+1] = green(finalCol);
-      gradientImage.pixels[idx+2] = blue(finalCol);
-      gradientImage.pixels[idx+3] = 255;
+      newImg.pixels[idx]   = red(finalCol);
+      newImg.pixels[idx+1] = green(finalCol);
+      newImg.pixels[idx+2] = blue(finalCol);
+      newImg.pixels[idx+3] = 255;
     }
   }
-  gradientImage.updatePixels();
+  newImg.updatePixels();
+
+  if(gradientImage){
+    oldGradientImage=gradientImage;
+    gradientImage=newImg;
+    fading=true;
+    fadeStart=millis();
+  } else {
+    gradientImage=newImg;
+  }
 }
 
 async function loadData(){
   try{
-    const url=`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m&daily=sunrise,sunset&timezone=${TZ}&current_weather=true`;
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=temperature_2m&daily=sunrise,sunset&timezone=Europe/London&current_weather=true`;
     const res=await fetch(url);
     const data=await res.json();
 
-    globalTime=data.current_weather.time;
     curTemp=data.current_weather.temperature;
-
     const sunrise=new Date(data.daily.sunrise[0]);
     const sunset=new Date(data.daily.sunset[0]);
     const tonightEnd=new Date(data.daily.sunrise[1]);
@@ -157,7 +176,7 @@ async function loadData(){
     if(dayTemps.length){dayLow=Math.min(...dayTemps);dayHigh=Math.max(...dayTemps);}
     if(nightTemps.length){nightLow=Math.min(...nightTemps);nightHigh=Math.max(...nightTemps);}
     liveData=true;
-    buildGradient(); // rebuild after data update
+    buildGradient();
     console.log("Day low/high:",dayLow,dayHigh,"Night low/high:",nightLow,nightHigh,"Current:",curTemp);
   }catch(e){
     console.warn("Data fetch failed",e);
@@ -165,9 +184,19 @@ async function loadData(){
   }
 }
 
+async function loadTime(){
+  try{
+    const res=await fetch("https://worldtimeapi.org/api/timezone/Europe/London");
+    const data=await res.json();
+    globalTime=data.datetime;
+  }catch(e){
+    console.warn("Time fetch failed",e);
+  }
+}
+
 function windowResized(){
   resizeCanvas(windowWidth,windowHeight);
-  buildGradient(); // rebuild on resize
+  buildGradient();
 }
 </script>
 </body>
