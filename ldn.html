@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Wind Flow + Temp (LDN)</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <style>
+    body { margin:0; padding:0; overflow:hidden; background:#f0f0f0; }
+    canvas { display:block; position:fixed; top:0; left:0; z-index:0; }
+  </style>
+  <!--
+    Credits:
+    Art Direction by TMTP
+    Developed & written with ChatGPT
+    Edited with Lumo
+  -->
+</head>
+<body>
+<script>
+// ------------------------------------------------------------
+// London wind + temperature visual (gradient cross-fade + full resize refresh)
+// Weather: Open-Meteo | Time: WorldTimeAPI (fallback to system clock)
+// ------------------------------------------------------------
+
+const lat = 51.5074, lon = -0.1278;
+
+// ---- Wind state ----
+let windSpeed = 0;   // m/s
+let windDir   = 0;   // deg (FROM)
+let windGust  = 0;   // m/s
+let hasWindData = false;
+
+// ---- Time state ----
+let globalTime = new Date().toISOString(); // show instantly
+
+// ---- Agents ----
+let agents = [];
+const numLines = 300;
+const speedScale = 0.3;
+
+// ---- Temp / gradient ----
+let dayLow=null, dayHigh=null, nightLow=null, nightHigh=null;
+// 4-stop palette (–1→33 °C): a0f4f4 → cdffd2 → feeebf → ff9c43
+const tempPalette = [
+  { t:-1, c:[160,244,244] },
+  { t:11, c:[205,255,210] },
+  { t:22, c:[254,238,191] },
+  { t:33, c:[255,156, 67] }
+];
+
+// Gradient cross-fade
+let gradientImage = null;     // new/current
+let oldGradientImage = null;  // previous
+let fading = false;
+let fadeStart = 0;
+const fadeDuration = 2000; // ms
+
+// Timers
+let lastFetch = 0;
+const fetchIntervalMs = 60 * 1000; // wind/time each minute
+
+// Resize debounce
+let resizeTimer = null;
+
+// ------------------------------------------------------------
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(2);
+
+  textFont('Andale Mono, monospace');
+  textSize(11);
+  textAlign(LEFT, BOTTOM);
+  fill(0);
+
+  for (let i=0; i<numLines; i++) {
+    agents.push(new LineAgent(random(width), random(height)));
+  }
+
+  // initial data pulls
+  fetchWind();
+  fetchTempsAndBuildGradient();   // builds and displays (with fade)
+  fetchTime();
+
+  // periodic pulls
+  setInterval(fetchWind, 60*1000);
+  setInterval(fetchTime, 60*1000);
+  setInterval(fetchTempsAndBuildGradient, 10*60*1000);
+
+  lastFetch = millis();
+}
+
+// ------------------------------------------------------------
+function draw() {
+  // --- Background gradient (with cross-fade) ---
+  if (fading && oldGradientImage && gradientImage) {
+    const amt = constrain((millis() - fadeStart) / fadeDuration, 0, 1);
+    tint(255, 255);
+    image(oldGradientImage, 0, 0, width, height);
+    tint(255, amt * 255);
+    image(gradientImage, 0, 0, width, height);
+    noTint();
+    if (amt >= 1) {
+      fading = false;
+      oldGradientImage = null;
+    }
+  } else if (gradientImage) {
+    image(gradientImage, 0, 0, width, height);
+  } else {
+    background(240);
+  }
+
+  // --- Wind layer ---
+  if (hasWindData && windSpeed > 0.01) {
+    const globalLen = constrain(map(windSpeed, 0, 30, 0, 300), 0, 300);
+    const baseAngle = radians(windDir + 90); // visual convention
+    const vx = cos(baseAngle) * windSpeed * 0.25 * speedScale;
+    const vy = sin(baseAngle) * windSpeed * 0.25 * speedScale;
+
+    const effectiveNum = constrain(int(map(windSpeed, 0, 33, 7, 251)), 7, 251);
+
+    // Line colour (black → yellow → red at high wind)
+    let col;
+    if (windSpeed < 20) {
+      col = color(0,0,0);
+    } else {
+      const hue = map(constrain(windSpeed,20,30),20,30,60,0);
+      colorMode(HSB,360,100,100);
+      col = color(hue,100,100);
+      colorMode(RGB,255);
+    }
+
+    // Line width (min 0.25px)
+    const lineWidth = map(windSpeed, 0, 30, 0.25, 1.5, true);
+
+    for (let i=0; i<effectiveNum; i++) {
+      const a = agents[i];
+      a.update(vx, vy, baseAngle, globalLen, windGust);
+      a.display(baseAngle, globalLen, col, lineWidth);
+    }
+  } else {
+    stroke(200,0,0);
+    strokeWeight(0.5);
+    for (const a of agents) point(a.x,a.y);
+  }
+
+  drawInfoStrip();
+
+  // safety minute cadence
+  if (millis() - lastFetch > fetchIntervalMs) {
+    fetchWind();
+    fetchTime();
+    lastFetch = millis();
+  }
+}
+
+// ------------------------------------------------------------
+function drawInfoStrip() {
+  const d = new Date(globalTime || new Date());
+  const hh = nf(d.getHours(),2);
+  const mm = nf(d.getMinutes(),2);
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+  const dayName = days[d.getDay()];
+  const dd = nf(d.getDate(),2);
+  const MM = months[d.getMonth()];
+  const yyyy = d.getFullYear();
+
+  const label = `LDN WIND ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
+  noStroke(); fill(0);
+  text(label, 5, height - 3);
+
+  // blinking underscore (matches wind.html)
+  if (frameCount % 60 < 30) {
+    const prefix = `WIND LDN ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
+    const w = textWidth(prefix);
+    text('_', 5 + w, height - 3);
+  }
+}
+
+// ------------------------------------------------------------
+// Agents
+class LineAgent {
+  constructor(x,y){
+    this.x=x; this.y=y;
+    this.phase=random(TWO_PI);
+    this.freq=random(0.01,0.05);
+    this.amp=random(0.02,0.05);
+    this.angleOffset=radians(random(-2,2));
+    this.lengthFactor=random(0.7,1.3);
+    this.growth=0; this.growthRate=random(0.002,0.01);
+  }
+  update(vx,vy,baseAngle,len,gust){
+    this.growth = min(1, this.growth + this.growthRate);
+    const gustFactor = map(gust, windSpeed, windSpeed*2, 1, 2, true);
+    const jitterX = cos(frameCount*this.freq + this.phase) * this.amp * vx * gustFactor;
+    const jitterY = sin(frameCount*this.freq + this.phase) * this.amp * vy * gustFactor;
+    this.x += vx + jitterX;
+    this.y += vy + jitterY;
+    if (this.x < -len)             { this.x = width + len;  this.y = random(-len, height + len); }
+    else if (this.x > width + len) { this.x = -len;         this.y = random(-len, height + len); }
+    if (this.y < -len)             { this.y = height + len; this.x = random(-len, width + len); }
+    else if (this.y > height + len){ this.y = -len;         this.x = random(-len, width + len); }
+  }
+  display(baseAngle,globalLen,col,lineWidth){
+    const thisLen = lerp(2, globalLen*this.lengthFactor, this.growth);
+    push();
+    translate(this.x,this.y);
+    rotate(baseAngle + this.angleOffset);
+    stroke(col);
+    strokeWeight(lineWidth);
+    line(-thisLen/2,0,thisLen/2,0);
+    pop();
+  }
+}
+
+// ------------------------------------------------------------
+// Gradient helpers
+function tempToColorArr(temp){
+  if (temp <= tempPalette[0].t) return tempPalette[0].c.slice();
+  if (temp >= tempPalette[tempPalette.length-1].t) return tempPalette[tempPalette.length-1].c.slice();
+  for (let i=0;i<tempPalette.length-1;i++){
+    const a=tempPalette[i], b=tempPalette[i+1];
+    if (temp>=a.t && temp<=b.t){
+      const u=(temp-a.t)/(b.t-a.t);
+      return [ lerp(a.c[0],b.c[0],u), lerp(a.c[1],b.c[1],u), lerp(a.c[2],b.c[2],u) ];
+    }
+  }
+  return tempPalette[0].c.slice();
+}
+
+function buildGradientImage(){
+  if (dayLow==null || dayHigh==null || nightLow==null || nightHigh==null) return null;
+
+  const tl = tempToColorArr(dayHigh);
+  const bl = tempToColorArr(dayLow);
+  const tr = tempToColorArr(nightHigh);
+  const br = tempToColorArr(nightLow);
+
+  const img = createImage(width, height);
+  img.loadPixels();
+  for (let y=0; y<height; y++){
+    const ny = y / max(1, height-1);
+    for (let x=0; x<width; x++){
+      const nx = x / max(1, width-1);
+      const top = [ lerp(tl[0],tr[0],nx), lerp(tl[1],tr[1],nx), lerp(tl[2],tr[2],nx) ];
+      const bot = [ lerp(bl[0],br[0],nx), lerp(bl[1],br[1],nx), lerp(bl[2],br[2],nx) ];
+      const col = [ lerp(top[0],bot[0],ny), lerp(top[1],bot[1],ny), lerp(top[2],bot[2],ny) ];
+      const idx = 4*(y*width + x);
+      img.pixels[idx+0]=col[0]; img.pixels[idx+1]=col[1]; img.pixels[idx+2]=col[2]; img.pixels[idx+3]=255;
+    }
+  }
+  img.updatePixels();
+  return img;
+}
+
+function setGradientImage(img){
+  if (!img) return;
+  if (gradientImage){
+    oldGradientImage = gradientImage;
+    gradientImage = img;
+    fading = true;
+    fadeStart = millis();
+  } else {
+    gradientImage = img;
+    fading = false;
+  }
+}
+
+// Instant rebuild (no fade) used on resize
+function rebuildGradientImmediate() {
+  if (dayLow!=null && dayHigh!=null && nightLow!=null && nightHigh!=null) {
+    const img = buildGradientImage();
+    oldGradientImage = null;   // kill fade
+    gradientImage = img;
+    fading = false;
+  }
+}
+
+// ------------------------------------------------------------
+// Fetchers
+async function fetchWind(){
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+              + `&current_weather=true&hourly=wind_speed_10m,wind_gusts_10m`
+              + `&windspeed_unit=ms&timezone=Europe/London`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data?.current_weather){
+      windSpeed = data.current_weather.windspeed;
+      windDir   = data.current_weather.winddirection;
+      hasWindData = true;
+    }
+
+    if (data?.hourly?.time && data.hourly.wind_gusts_10m){
+      const idx = nearestTimeIndex(data.hourly.time, new Date());
+      windGust = data.hourly.wind_gusts_10m[idx] ?? windSpeed;
+    } else {
+      windGust = windSpeed;
+    }
+  }catch(e){
+    console.warn('Wind fetch failed:', e);
+    hasWindData = false;
+  }
+}
+
+async function fetchTempsAndBuildGradient(){
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+              + `&hourly=temperature_2m&daily=sunrise,sunset&timezone=Europe/London`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const sunrise     = new Date(data.daily.sunrise[0]); // today
+    const sunset      = new Date(data.daily.sunset[0]);  // today
+    const nextSunrise = new Date(data.daily.sunrise[1]); // tomorrow
+
+    const dayTemps = [], nightTemps = [];
+    data.hourly.time.forEach((tStr,i)=>{
+      const t = new Date(tStr);
+      const temp = data.hourly.temperature_2m[i];
+      if (t >= sunrise && t <= sunset) {
+        dayTemps.push(temp);
+      } else if (t > sunset && t <= nextSunrise) {
+        nightTemps.push(temp);
+      }
+    });
+
+    if (dayTemps.length){ dayLow=Math.min(...dayTemps); dayHigh=Math.max(...dayTemps); }
+    if (nightTemps.length){ nightLow=Math.min(...nightTemps); nightHigh=Math.max(...nightTemps); }
+
+    setGradientImage(buildGradientImage());
+  }catch(e){
+    console.warn('Temp fetch failed:', e);
+  }
+}
+
+async function fetchTime(){
+  try{
+    const res = await fetch('https://worldtimeapi.org/api/timezone/Europe/London');
+    const data = await res.json();
+    if (data?.datetime) globalTime = data.datetime;
+  }catch(e){
+    // keep system time
+  }
+}
+
+// nearest timestamp index
+function nearestTimeIndex(isoTimes, when){
+  let best = 0, bestDt = Infinity;
+  for (let i=0;i<isoTimes.length;i++){
+    const dt = Math.abs(new Date(isoTimes[i]) - when);
+    if (dt < bestDt){ bestDt = dt; best = i; }
+  }
+  return best;
+}
+
+// ------------------------------------------------------------
+function windowResized(){
+  resizeCanvas(windowWidth, windowHeight);
+
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(fullRefreshOnResize, 150);
+}
+
+function fullRefreshOnResize() {
+  // snap clock to system time immediately
+  globalTime = new Date().toISOString();
+
+  // rebuild agents
+  agents = [];
+  for (let i = 0; i < numLines; i++) {
+    agents.push(new LineAgent(random(width), random(height)));
+  }
+
+  // rebuild gradient immediately (no fade)
+  rebuildGradientImmediate();
+
+  // refetch latest wind + clock now
+  fetchWind();
+  fetchTime();
+
+  // reset cadence timer
+  lastFetch = millis();
+}
+</script>
+</body>
+</html>
