@@ -39,7 +39,7 @@ const numLines = 300;
 const speedScale = 0.3;
 
 // ---- Temp / gradient -------------------------------------------
-let dayLow=null, dayHigh=null, nightLow=null, nightHigh=null;
+let dayLow=null, dayHigh=null, nightLow=null, nightHigh=null; let currentTemp = null;
 
 // 4‑stop palette (–1 → 33 °C): a0f4f4 → cdffd2 → feeebf → ff9c43
 const tempPalette = [
@@ -82,7 +82,7 @@ function setup() {
   fill(0);
 
   // ensure we can draw immediately while remote fetches complete
-  gradientReady = true;
+//  gradientReady = true;
 
 
   // initialise agents
@@ -255,18 +255,54 @@ function tempToColorArr(temp) {
   }
   return tempPalette[0].c.slice();
 }
+
+
+
 function buildGradientImage() {
-  if (dayLow===null||dayHigh===null||nightLow===null||nightHigh===null) return null;
+  // if we don't have full temp data yet, return a neutral image so drawing proceeds
+  if (dayLow===null||dayHigh===null||nightLow===null||nightHigh===null) {
+    const img = createImage(max(1,width), max(1,height));
+    img.loadPixels();
+    const avg = [240,240,240];
+    for (let y=0;y<img.height;y++){
+      for (let x=0;x<img.width;x++){
+        const idx = 4*(y*img.width + x);
+        img.pixels[idx+0]=avg[0]; img.pixels[idx+1]=avg[1]; img.pixels[idx+2]=avg[2]; img.pixels[idx+3]=255;
+      }
+    }
+    img.updatePixels();
+    return img;
+  }
+
   const tl = tempToColorArr(dayHigh);
   const bl = tempToColorArr(dayLow);
   const tr = tempToColorArr(nightHigh);
   const br = tempToColorArr(nightLow);
-  const img = createImage(width, height);
+
+  // centre colour from currentTemp (fallback to average of corners if null)
+  let cc;
+  if (currentTemp !== null && !isNaN(currentTemp)) {
+    cc = tempToColorArr(currentTemp);
+  } else {
+    cc = [
+      (tl[0]+tr[0]+bl[0]+br[0]) * 0.25,
+      (tl[1]+tr[1]+bl[1]+br[1]) * 0.25,
+      (tl[2]+tr[2]+bl[2]+br[2]) * 0.25
+    ];
+  }
+
+  const img = createImage(max(1,width), max(1,height));
   img.loadPixels();
-  for (let y=0; y<height; y++) {
-    const ny = y / max(1, height-1);
-    for (let x=0; x<width; x++) {
-      const nx = x / max(1, width-1);
+  const cx = (img.width-1)/2;
+  const cy = (img.height-1)/2;
+  const maxR = min(img.width, img.height) * 0.5;
+
+  for (let y=0; y<img.height; y++) {
+    const ny = y / max(1, img.height-1);
+    for (let x=0; x<img.width; x++) {
+      const nx = x / max(1, img.width-1);
+
+      // bilinear corner interpolation
       const top = [
         lerp(tl[0], tr[0], nx),
         lerp(tl[1], tr[1], nx),
@@ -277,12 +313,23 @@ function buildGradientImage() {
         lerp(bl[1], br[1], nx),
         lerp(bl[2], br[2], nx)
       ];
-      const col = [
+      let col = [
         lerp(top[0], bot[0], ny),
         lerp(top[1], bot[1], ny),
         lerp(top[2], bot[2], ny)
       ];
-      const idx = 4 * (y * width + x);
+
+      const dx = x - cx;
+      const dy = y - cy;
+      const d = sqrt(dx*dx + dy*dy);
+      const w = constrain(1 - (d / maxR), 0, 1);
+      const wSmooth = w * w * (3 - 2 * w);
+
+      col[0] = lerp(col[0], cc[0], wSmooth);
+      col[1] = lerp(col[1], cc[1], wSmooth);
+      col[2] = lerp(col[2], cc[2], wSmooth);
+
+      const idx = 4 * (y * img.width + x);
       img.pixels[idx+0] = col[0];
       img.pixels[idx+1] = col[1];
       img.pixels[idx+2] = col[2];
@@ -292,6 +339,10 @@ function buildGradientImage() {
   img.updatePixels();
   return img;
 }
+
+
+
+
 function setGradientImage(img) {
   if (!img) return;
   if (gradientImage) {
@@ -302,6 +353,7 @@ function setGradientImage(img) {
   } else {
     gradientImage = img;
     fading = false;
+
   }
   gradientReady = true;   // now we know a gradient exists
 }
@@ -358,6 +410,20 @@ async function fetchTempsAndBuildGradient() {
     });
     if (dayTemps.length)  { dayLow = Math.min(...dayTemps);  dayHigh = Math.max(...dayTemps); }
     if (nightTemps.length){ nightLow = Math.min(...nightTemps); nightHigh = Math.max(...nightTemps); }
+
+
+
+
+
+
+    // pick latest hourly temp (nearest to now)
+    if (data.hourly && data.hourly.time && data.hourly.temperature_2m) {
+      const idxNow = nearestTimeIndex(data.hourly.time, new Date());
+      currentTemp = data.hourly.temperature_2m[idxNow];
+    }
+
+    setGradientImage(buildGradientImage());
+
 
     setGradientImage(buildGradientImage());
   } catch (e) {
