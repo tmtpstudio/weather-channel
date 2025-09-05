@@ -76,6 +76,10 @@ function setup() {
   textAlign(LEFT, BOTTOM);
   fill(0);
 
+  // ensure we can draw immediately while remote fetches complete
+  gradientReady = true;
+
+
   // initialise agents
   for (let i = 0; i < numLines; i++) {
     agents.push(new LineAgent(random(width), random(height)));
@@ -171,24 +175,26 @@ function draw() {
 // Info strip – always shows London time (UTC+0)
 function drawInfoStrip() {
   const d = new Date(globalTime);
-  const hh = nf(d.getUTCHours(),2);
-  const mm = nf(d.getUTCMinutes(),2);
+  // Use local getters so the displayed time reflects Britain local time (BST/GMT)
+  const hh = nf(d.getHours(),2);
+  const mm = nf(d.getMinutes(),2);
   const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
-  const dayName = days[d.getUTCDay()];
-  const dd = nf(d.getUTCDate(),2);
+  const dayName = days[d.getDay()];
+  const dd = nf(d.getDate(),2);
   const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
-  const MM = months[d.getUTCMonth()];
-  const yyyy = d.getUTCFullYear();
-  const label = `LDN ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
+  const MM = months[d.getMonth()];
+  const yyyy = d.getFullYear();
+  const label = `LDN (BST) ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
   noStroke(); fill(0);
   text(label, 5, height - 3);
   // blinking underscore (matches wind.html)
   if (frameCount % 60 < 30) {
-    const prefix = `LDN ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
+    const prefix = `LDN (BST) ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
     const w = textWidth(prefix);
     text('_', 5 + w, height - 3);
   }
 }
+
 
 // ------------------------------------------------------------
 // Agents
@@ -378,7 +384,7 @@ function windowResized() {
   resizeTimer = setTimeout(fullRefreshOnResize, 150);
 }
 function fullRefreshOnResize() {
-  // Snap clock to London instantly (ISO string, UTC+0)
+  // Snap clock to London instantly (local ISO string)
   globalTime = new Date().toISOString();
 
   // Rebuild agents
