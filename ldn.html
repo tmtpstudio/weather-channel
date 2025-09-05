@@ -31,7 +31,7 @@ let windGust  = 0;   // m/s
 let hasWindData = false;
 
 // ---- Time state ------------------------------------------------
-let globalTime = new Date().toISOString(); // fallback to system time
+// let globalTime = new Date().toISOString(); // fallback to system time
 
 // ---- Agents ----------------------------------------------------
 let agents = [];
@@ -55,6 +55,11 @@ let oldGradientImage = null;   // previous (for fade)
 let fading = false;
 let fadeStart = 0;
 const fadeDuration = 2000; // ms
+
+//Time
+let globalTime = new Date().toISOString();
+let globalTZAbbrev = 'BST'; // will be updated by fetchTime()
+
 
 // Timers
 let lastFetch = 0;
@@ -184,12 +189,12 @@ function drawInfoStrip() {
   const months = ['01','02','03','04','05','06','07','08','09','10','11','12'];
   const MM = months[d.getMonth()];
   const yyyy = d.getFullYear();
-  const label = `LDN (BST) ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
+  const label = `LDN (${globalTZAbbrev}) ${dayName} ${dd}-${MM}-${yyyy} ${hh}${mm}`;
   noStroke(); fill(0);
   text(label, 5, height - 3);
   // blinking underscore (matches wind.html)
   if (frameCount % 60 < 30) {
-    const prefix = `LDN (BST) ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
+ const prefix = `LDN (${globalTZAbbrev}) ${dayName} ${dd}-${MM}-${yyyy} ${hh}`;
     const w = textWidth(prefix);
     text('_', 5 + w, height - 3);
   }
@@ -359,15 +364,26 @@ async function fetchTempsAndBuildGradient() {
     console.warn('Temp fetch failed:', e);
   }
 }
+
+
+
 async function fetchTime() {
   try {
     const res = await fetch('https://worldtimeapi.org/api/timezone/Europe/London');
     const data = await res.json();
-    if (data?.datetime) globalTime = data.datetime; // ISO string already in London local time
+    if (data?.datetime) {
+      globalTime = data.datetime;            // ISO string in London local time
+      // store DST/abbrev so display can switch between BST/GMT
+      globalTZAbbrev = data.abbreviation || (data.dst ? 'BST' : 'GMT');
+    }
   } catch (e) {
-    // keep whatever we already have (fallback from init)
+    // keep fallback
   }
 }
+
+
+
+
 function nearestTimeIndex(isoTimes, when) {
   let best = 0, bestDt = Infinity;
   for (let i = 0; i < isoTimes.length; i++) {
